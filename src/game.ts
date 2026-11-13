@@ -632,6 +632,7 @@ export class Game {
       const dz = attacker.body.position.z - eye.z;
       const absYaw = yawToOffset(dx, dz);
       this.hurts.push({ yaw: absYaw - victim.yaw, at: this.simTime });
+      this.hurts = this.hurts.slice(-16);
     }
     if (res.killed) {
       attacker.kills += 1;
@@ -890,25 +891,38 @@ export class Game {
   }
 
   private spawnDecal(point: Vec3, normal: Vec3): void {
+    const nl = Math.hypot(normal.x, normal.y, normal.z);
+    if (!Number.isFinite(nl) || nl < 1e-5) return;
+    const nx = normal.x / nl;
+    const ny = normal.y / nl;
+    const nz = normal.z / nl;
     const m = new THREE.Mesh(
       new THREE.CircleGeometry(3.5, 8),
       new THREE.MeshBasicMaterial({ color: 0x1a1a1a, side: THREE.DoubleSide }),
     );
-    m.position.set(point.x + normal.x * 0.6, point.y + normal.y * 0.6, point.z + normal.z * 0.6);
-    m.lookAt(point.x + normal.x, point.y + normal.y, point.z + normal.z);
+    m.position.set(point.x + nx * 0.6, point.y + ny * 0.6, point.z + nz * 0.6);
+    m.lookAt(point.x + nx, point.y + ny, point.z + nz);
     this.scene.add(m);
     this.decals.push({ mesh: m, life: 8 });
     if (this.decals.length > 80) {
       const old = this.decals.shift()!;
-      this.scene.remove(old.mesh);
+      this.disposeDecal(old.mesh);
     }
+  }
+
+  private disposeDecal(mesh: THREE.Mesh): void {
+    this.scene.remove(mesh);
+    mesh.geometry.dispose();
+    const mat = mesh.material;
+    if (Array.isArray(mat)) mat.forEach((item) => item.dispose());
+    else mat.dispose();
   }
 
   private stepDecals(dt: number): void {
     for (let i = this.decals.length - 1; i >= 0; i--) {
       this.decals[i].life -= dt;
       if (this.decals[i].life <= 0) {
-        this.scene.remove(this.decals[i].mesh);
+        this.disposeDecal(this.decals[i].mesh);
         this.decals.splice(i, 1);
       }
     }
@@ -1044,8 +1058,10 @@ export class Game {
         this.camera.position.set(pos.x, eye, pos.z);
         this.camera.rotation.order = "YXZ";
         const w = activeWeapon(camPlayer);
-        this.camera.rotation.y = camPlayer.yaw + w.recoil.yaw * degToRad(1);
-        this.camera.rotation.x = camPlayer.pitch + w.recoil.pitch * degToRad(1);
+        const recYaw = Number.isFinite(w.recoil.yaw) ? w.recoil.yaw : 0;
+        const recPitch = Number.isFinite(w.recoil.pitch) ? w.recoil.pitch : 0;
+        this.camera.rotation.y = camPlayer.yaw + recYaw * degToRad(1);
+        this.camera.rotation.x = clamp(camPlayer.pitch + recPitch * degToRad(1), -1.45, 1.45);
       } else {
         // Short death cam: pulled back from the corpse, mouse still looks around.
         const dir = yawPitchToDir(local.yaw, local.pitch);

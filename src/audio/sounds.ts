@@ -1,10 +1,13 @@
 /**
  * Procedural SFX via Web Audio — no external samples.
+ * Oscillator-only: BufferSource noise graphs were crashing some browsers mid-spray.
  */
 export class SoundBus {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private footAcc = 0;
+  private voices = 0;
+  private static readonly MAX_VOICES = 12;
   muted = false;
 
   resume(): void {
@@ -23,100 +26,29 @@ export class SoundBus {
   }
 
   gunshot(kind: "rifle" | "pistol" | "sniper"): void {
-    const ctx = this.audio;
-    if (!ctx || !this.master) return;
-    const t = ctx.currentTime;
-    const dur = kind === "sniper" ? 0.38 : kind === "rifle" ? 0.16 : 0.12;
+    const dur = kind === "sniper" ? 0.28 : kind === "rifle" ? 0.12 : 0.09;
     const freq = kind === "sniper" ? 90 : kind === "rifle" ? 140 : 210;
-
-    const noise = this.noise(ctx, dur, kind === "sniper" ? 1800 : 2400);
-    const ng = ctx.createGain();
-    ng.gain.setValueAtTime(0.9, t);
-    ng.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    noise.connect(ng).connect(this.master);
-
-    const osc = ctx.createOscillator();
-    osc.type = "square";
-    osc.frequency.setValueAtTime(freq, t);
-    osc.frequency.exponentialRampToValueAtTime(40, t + dur);
-    const og = ctx.createGain();
-    og.gain.setValueAtTime(0.35, t);
-    og.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.8);
-    osc.connect(og).connect(this.master);
-    osc.start(t);
-    osc.stop(t + dur);
+    const gain = kind === "sniper" ? 0.4 : 0.32;
+    this.tone("square", freq, 40, dur, gain);
+    this.tone("triangle", freq * 3, 120, dur * 0.45, gain * 0.22);
   }
 
   melee(): void {
-    const ctx = this.audio;
-    if (!ctx || !this.master) return;
-    const t = ctx.currentTime;
-    const n = this.noise(ctx, 0.1, 1800);
-    const ng = ctx.createGain();
-    ng.gain.setValueAtTime(0.35, t);
-    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
-    n.connect(ng).connect(this.master);
-    const o = ctx.createOscillator();
-    o.type = "triangle";
-    o.frequency.setValueAtTime(320, t);
-    o.frequency.exponentialRampToValueAtTime(90, t + 0.12);
-    const og = ctx.createGain();
-    og.gain.setValueAtTime(0.22, t);
-    og.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
-    o.connect(og).connect(this.master);
-    o.start(t);
-    o.stop(t + 0.14);
+    this.tone("triangle", 320, 90, 0.14, 0.22);
   }
 
   reload(): void {
-    const ctx = this.audio;
-    if (!ctx || !this.master) return;
-    const t = ctx.currentTime;
-    for (let i = 0; i < 3; i++) {
-      const o = ctx.createOscillator();
-      o.type = "triangle";
-      o.frequency.value = 420 - i * 80;
-      const g = ctx.createGain();
-      const s = t + i * 0.18;
-      g.gain.setValueAtTime(0.0001, s);
-      g.gain.exponentialRampToValueAtTime(0.12, s + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, s + 0.12);
-      o.connect(g).connect(this.master);
-      o.start(s);
-      o.stop(s + 0.14);
-    }
+    this.tone("triangle", 420, 420, 0.12, 0.1, 0);
+    this.tone("triangle", 340, 340, 0.12, 0.1, 0.18);
+    this.tone("triangle", 260, 260, 0.12, 0.1, 0.36);
   }
 
   hit(head: boolean): void {
-    const ctx = this.audio;
-    if (!ctx || !this.master) return;
-    const t = ctx.currentTime;
-    const o = ctx.createOscillator();
-    o.type = "sawtooth";
-    o.frequency.setValueAtTime(head ? 520 : 220, t);
-    o.frequency.exponentialRampToValueAtTime(80, t + 0.1);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(head ? 0.28 : 0.16, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
-    o.connect(g).connect(this.master);
-    o.start(t);
-    o.stop(t + 0.13);
+    this.tone("sawtooth", head ? 520 : 220, 80, 0.12, head ? 0.28 : 0.16);
   }
 
   hurt(): void {
-    const ctx = this.audio;
-    if (!ctx || !this.master) return;
-    const t = ctx.currentTime;
-    const o = ctx.createOscillator();
-    o.type = "sine";
-    o.frequency.setValueAtTime(160, t);
-    o.frequency.exponentialRampToValueAtTime(60, t + 0.2);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.18, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
-    o.connect(g).connect(this.master);
-    o.start(t);
-    o.stop(t + 0.23);
+    this.tone("sine", 160, 60, 0.22, 0.18);
   }
 
   footsteps(speed: number, walking: boolean, dt: number, airborne: boolean): void {
@@ -128,76 +60,56 @@ export class SoundBus {
     this.footAcc += dt;
     if (this.footAcc < interval) return;
     this.footAcc = 0;
-    const ctx = this.audio;
-    if (!ctx || !this.master) return;
-    const t = ctx.currentTime;
-    const n = this.noise(ctx, 0.08, walking ? 400 : 900);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(walking ? 0.05 : 0.14, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
-    n.connect(g).connect(this.master);
+    this.tone("triangle", walking ? 90 : 140, 50, 0.07, walking ? 0.05 : 0.12);
   }
 
   plantBeep(high: boolean): void {
-    this.beep(high ? 980 : 620, 0.08, 0.12);
+    this.tone("square", high ? 980 : 620, high ? 980 : 620, 0.08, 0.12);
   }
 
   bombTick(urgent: boolean): void {
-    this.beep(urgent ? 1100 : 740, urgent ? 0.06 : 0.05, urgent ? 0.16 : 0.1);
+    this.tone("square", urgent ? 1100 : 740, urgent ? 1100 : 740, urgent ? 0.06 : 0.05, urgent ? 0.16 : 0.1);
   }
 
   explode(): void {
-    const ctx = this.audio;
-    if (!ctx || !this.master) return;
-    const t = ctx.currentTime;
-    const n = this.noise(ctx, 1.2, 600);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.9, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
-    n.connect(g).connect(this.master);
-    const o = ctx.createOscillator();
-    o.type = "sine";
-    o.frequency.setValueAtTime(70, t);
-    o.frequency.exponentialRampToValueAtTime(25, t + 0.8);
-    const og = ctx.createGain();
-    og.gain.setValueAtTime(0.5, t);
-    og.gain.exponentialRampToValueAtTime(0.001, t + 0.9);
-    o.connect(og).connect(this.master);
-    o.start(t);
-    o.stop(t + 1);
+    this.tone("sine", 70, 25, 0.9, 0.5);
+    this.tone("square", 40, 20, 0.6, 0.2);
   }
 
   buy(): void {
-    this.beep(880, 0.06, 0.1);
+    this.tone("square", 880, 880, 0.06, 0.1);
   }
 
-  private beep(freq: number, dur: number, gain: number): void {
+  private tone(
+    type: OscillatorType,
+    freq: number,
+    endFreq: number,
+    dur: number,
+    gain: number,
+    delay = 0,
+  ): void {
     const ctx = this.audio;
     if (!ctx || !this.master) return;
-    const t = ctx.currentTime;
-    const o = ctx.createOscillator();
-    o.type = "square";
-    o.frequency.value = freq;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(gain, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(g).connect(this.master);
-    o.start(t);
-    o.stop(t + dur + 0.02);
-  }
-
-  private noise(ctx: AudioContext, dur: number, cutoff: number): AudioNode {
-    const frames = Math.max(1, Math.floor(ctx.sampleRate * dur));
-    const buffer = ctx.createBuffer(1, frames, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
-    const src = ctx.createBufferSource();
-    src.buffer = buffer;
-    const filter = ctx.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.value = cutoff;
-    src.connect(filter);
-    src.start();
-    return filter;
+    if (this.voices >= SoundBus.MAX_VOICES) return;
+    this.voices += 1;
+    try {
+      const t = ctx.currentTime + delay;
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(Math.max(1, freq), t);
+      if (endFreq !== freq) o.frequency.linearRampToValueAtTime(Math.max(1, endFreq), t + dur);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(Math.max(0.0001, gain), t);
+      g.gain.linearRampToValueAtTime(0.0001, t + dur);
+      o.connect(g);
+      g.connect(this.master);
+      o.onended = () => {
+        this.voices = Math.max(0, this.voices - 1);
+      };
+      o.start(t);
+      o.stop(t + dur + 0.02);
+    } catch {
+      this.voices = Math.max(0, this.voices - 1);
+    }
   }
 }

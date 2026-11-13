@@ -32,15 +32,19 @@ export class FixedLoop {
       this.last = now;
       if (delta > this.maxFrame) delta = this.maxFrame;
       // Look / other per-display-frame input before the fixed ticks and draw.
-      this.onFrame?.();
-      this.acc += delta;
-      let steps = 0;
-      while (this.acc >= TICK_DT && steps < TICK_HZ) {
-        this.onTick(TICK_DT, this.tick++);
-        this.acc -= TICK_DT;
-        steps++;
+      try {
+        this.onFrame?.();
+        this.acc += delta;
+        let steps = 0;
+        while (this.acc >= TICK_DT && steps < TICK_HZ) {
+          this.onTick(TICK_DT, this.tick++);
+          this.acc -= TICK_DT;
+          steps++;
+        }
+        this.onDraw(this.acc / TICK_DT, now);
+      } catch (err) {
+        console.error("game frame failed", err);
       }
-      this.onDraw(this.acc / TICK_DT, now);
       this.raf = requestAnimationFrame(frame);
     };
     this.raf = requestAnimationFrame(frame);
